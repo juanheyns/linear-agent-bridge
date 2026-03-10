@@ -48,7 +48,7 @@ import { createSessionToken, revokeSessionToken } from "../agent/session-token.j
 import { buildEnrichedMessage } from "../agent/context-builder.js";
 import { cleanupSession } from "../agent/plan-manager.js";
 import { hasPostedResponse, clearResponseFlag } from "../agent/response-tracker.js";
-import { captureBaseUrl } from "../api/base-url.js";
+import { captureBaseUrl, getBaseOrigin } from "../api/base-url.js";
 
 const callRef: { value?: (opts: Record<string, unknown>) => Promise<unknown> } = {};
 
@@ -64,6 +64,7 @@ const DEDUP_WINDOW_MS = 5_000;
 
 export function createLinearWebhook(
   api: OpenClawPluginApi,
+  agentName?: string,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
     if (req.method !== "POST") {
@@ -79,6 +80,20 @@ export function createLinearWebhook(
     }
     const raw = read.body;
     const cfg = normalizeCfg(api.pluginConfig);
+
+    // Apply per-agent credential overrides
+    if (agentName && cfg.linearAgents?.[agentName]) {
+      const creds = cfg.linearAgents[agentName];
+      cfg.linearApiKey = creds.apiKey;
+      cfg.linearWebhookSecret = creds.webhookSecret;
+      if (creds.devAgentId) cfg.devAgentId = creds.devAgentId;
+    } else if (agentName) {
+      api.logger.warn?.(`linear webhook: unknown agent "${agentName}", ignoring`);
+      res.statusCode = 202;
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
     const secret = cfg.linearWebhookSecret;
     const sig = readHeader(req, "linear-signature");
     const delivery = readHeader(req, "linear-delivery");
@@ -117,7 +132,7 @@ export function createLinearWebhook(
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ ok: true }));
     queueMicrotask(() => {
-      handleWebhook(api, cfg, data, delivery).catch((err) => {
+      handleWebhook(api, cfg, data, delivery, agentName).catch((err) => {
         api.logger.warn?.(`linear webhook error: ${err instanceof Error ? err.message : String(err)}`);
       });
     });
@@ -129,6 +144,7 @@ async function handleWebhook(
   cfg: PluginConfig,
   data: Record<string, unknown>,
   delivery: string | undefined,
+  agentName?: string,
 ): Promise<void> {
   const kind = readString(data.type as string) ?? "";
   if (kind === "PermissionChange" || kind === "OAuthApp") {
@@ -162,7 +178,7 @@ async function handleWebhook(
     ? data
     : { ...data, agentSessionId: sessionId };
   rememberSessionHint(eventData, sessionId);
-  await handleAgentEvent(api, cfg, eventData, delivery);
+  await handleAgentEvent(api, cfg, eventData, delivery, agentName);
 }
 
 async function handleAgentEvent(
@@ -170,6 +186,7 @@ async function handleAgentEvent(
   cfg: PluginConfig,
   data: Record<string, unknown>,
   delivery: string | undefined,
+  agentName?: string,
 ): Promise<void> {
   const action = resolveAction(data);
   if (!action) {
@@ -269,6 +286,7 @@ async function handleAgentEvent(
       issueUrl: url,
       teamId,
       apiToken: "", // will be set below
+      linearApiKey: cfg.linearApiKey,
     };
     apiToken = createSessionToken(sessionCtx);
     sessionCtx.apiToken = apiToken;
@@ -277,8 +295,10 @@ async function handleAgentEvent(
   // Build agent message — enriched with API docs if API is enabled
   let message: string;
   if (enableApi && apiToken) {
-    const { getBaseUrl } = await import("../api/base-url.js");
-    const apiBaseUrl = cfg.apiBaseUrl || getBaseUrl();
+    const origin = cfg.apiBaseUrl || getBaseOrigin();
+    const apiBaseUrl = agentName
+      ? `${origin}/plugins/linear/${agentName}/api`
+      : `${origin}/plugins/linear/api`;
     api.logger.info?.(`linear handler: ENRICHED message, apiBaseUrl=${apiBaseUrl}, tokenLen=${apiToken.length}`);
     message = buildEnrichedMessage({
       action,

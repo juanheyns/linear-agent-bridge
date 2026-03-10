@@ -19,7 +19,14 @@ export interface OpenClawPluginApi {
   }) => void;
 }
 
+export interface AgentCredentials {
+  apiKey: string;
+  webhookSecret: string;
+  devAgentId?: string;
+}
+
 export interface PluginConfig {
+  linearAgents?: Record<string, AgentCredentials>;
   devAgentId?: string;
   linearWebhookSecret?: string;
   linearApiKey?: string;
@@ -71,6 +78,7 @@ export interface SessionContext {
   issueUrl: string;
   teamId: string;
   apiToken: string;
+  linearApiKey?: string;
 }
 
 export interface LinearCallResult {

@@ -60,6 +60,7 @@ export function createApiRouter(
     }
 
     const cfg = normalizeCfg(api.pluginConfig);
+    if (context.linearApiKey) cfg.linearApiKey = context.linearApiKey;
     const rawAction = typeof body.action === "string" ? body.action : "";
     const action = rawAction.startsWith("/") ? rawAction : `/${rawAction}`;
     const handler = routes.get(action);

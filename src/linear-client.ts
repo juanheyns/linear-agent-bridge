@@ -8,7 +8,7 @@ import { readObject, readString } from "./util.js";
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 
 const warnRef = { value: false };
-const viewerRef: { value?: string } = {};
+const viewerCache = new Map<string, string>();
 
 export async function callLinear(
   api: OpenClawPluginApi,
@@ -66,7 +66,10 @@ export async function resolveViewer(
   api: OpenClawPluginApi,
   cfg: PluginConfig,
 ): Promise<string> {
-  if (viewerRef.value) return viewerRef.value;
+  const token = cfg.linearApiKey ?? "";
+  if (!token) return "";
+  const cached = viewerCache.get(token);
+  if (cached) return cached;
   const { VIEWER_QUERY } = await import("./graphql/queries.js");
   const result = await callLinear(api, cfg, "viewer", {
     query: VIEWER_QUERY,
@@ -75,7 +78,7 @@ export async function resolveViewer(
   if (!result.ok) return "";
   const viewer = readObject(result.data!.viewer);
   const id = readString(viewer?.id) ?? "";
-  if (id) viewerRef.value = id;
+  if (id) viewerCache.set(token, id);
   return id;
 }
 

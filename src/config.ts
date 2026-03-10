@@ -1,4 +1,4 @@
-import type { PluginConfig } from "./types.js";
+import type { AgentCredentials, PluginConfig } from "./types.js";
 
 export function normalizeCfg(
   input: Record<string, unknown> | undefined,
@@ -20,6 +20,7 @@ export function normalizeCfg(
     externalUrlLabel: readCfgString(cfg, "externalUrlLabel"),
     enableAgentApi: readCfgBool(cfg, "enableAgentApi"),
     apiBaseUrl: readCfgString(cfg, "apiBaseUrl"),
+    linearAgents: readCfgAgents(cfg, "linearAgents"),
   };
 }
 
@@ -40,6 +41,30 @@ function readCfgBool(
   const raw = cfg[key];
   if (typeof raw !== "boolean") return undefined;
   return raw;
+}
+
+function readCfgAgents(
+  cfg: Record<string, unknown>,
+  key: string,
+): Record<string, AgentCredentials> | undefined {
+  const raw = cfg[key];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const map = raw as Record<string, unknown>;
+  const out: Record<string, AgentCredentials> = {};
+  for (const [k, v] of Object.entries(map)) {
+    const obj = v && typeof v === "object" && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : null;
+    if (!obj) continue;
+    const apiKey = typeof obj.apiKey === "string" ? obj.apiKey.trim() : "";
+    const webhookSecret = typeof obj.webhookSecret === "string" ? obj.webhookSecret.trim() : "";
+    if (!apiKey || !webhookSecret) continue;
+    const entry: AgentCredentials = { apiKey, webhookSecret };
+    const devAgentId = typeof obj.devAgentId === "string" ? obj.devAgentId.trim() : "";
+    if (devAgentId) entry.devAgentId = devAgentId;
+    out[k] = entry;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function readCfgMap(

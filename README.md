@@ -50,7 +50,7 @@ An [OpenClaw](https://github.com/nicepkg/openclaw) plugin that turns Linear's Ag
               ┌────────────────┐
               │ OpenClaw Agent │
               │                │
-              │  Reads issue,  │◄──── POST /plugins/linear/api
+              │  Reads issue,  │◄──── POST /plugins/linear/{agent}/api
               │  writes code,  │      (bearer token auth)
               │  posts updates │────► Linear GraphQL API
               │  to Linear     │
@@ -72,6 +72,7 @@ An [OpenClaw](https://github.com/nicepkg/openclaw) plugin that turns Linear's Ag
 - **Close Intent Detection** — recognizes natural-language close commands in English and Russian ("close this task", "закрой задачу") and fast-paths them without a full agent run
 - **Per-Session Security** — each agent run gets a unique cryptographic bearer token scoped to its session; revoked on completion
 - **Issue Policies** — automatically moves issues to "started" state and delegates to the app user on session creation
+- **Multi-Agent Support** — run multiple Linear agents through a single gateway with per-agent credentials, webhook secrets, and OpenClaw agent routing
 - **Multi-Repo Routing** — maps Linear teams and projects to specific repository directories
 - **Elicitation with Select** — the agent can present clickable option lists to users via the `select` signal
 - **External URL Linking** — attaches external links (e.g. CI dashboard, PR) to the Linear session
@@ -115,7 +116,7 @@ The plugin registers itself with OpenClaw via the `openclaw` field in `package.j
 2. Set a recognizable name (this is how users will see the agent in mentions and filters)
 3. Enable **Webhooks**
 4. Under webhook events, select **Agent session events**
-5. Set the webhook URL to: `https://<your-host>/plugins/linear/linear`
+5. Set the webhook URL to: `https://<your-host>/plugins/linear/<agentName>/webhook` (multi-agent) or `https://<your-host>/plugins/linear/linear` (single-agent fallback)
 
 ### 2. OAuth Installation
 
@@ -142,7 +143,29 @@ In your Linear application settings, copy the **Webhook signing secret**. This i
 
 Configure the plugin in your OpenClaw config under the plugin's section. All options are defined in `openclaw.plugin.json`.
 
-### Required
+### Multi-Agent Setup (Recommended)
+
+Use `linearAgents` to run multiple Linear agents through a single gateway. Each agent gets its own webhook endpoint, OAuth token, signing secret, and optional OpenClaw agent ID.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `linearAgents` | `object` | Per-agent credentials map. Keys are agent names (used as URL path segments) |
+
+Each agent entry:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `apiKey` | `string` | Yes | Linear OAuth token for this agent |
+| `webhookSecret` | `string` | Yes | HMAC signing secret for this agent's webhooks |
+| `devAgentId` | `string` | No | OpenClaw agent ID (overrides top-level `devAgentId`) |
+
+Routes registered per agent:
+- `POST /plugins/linear/{agentName}/webhook` — webhook receiver
+- `POST /plugins/linear/{agentName}/api` — agent API proxy
+
+### Single-Agent Setup (Legacy)
+
+If `linearAgents` is not set, the plugin falls back to single-agent mode using top-level credentials:
 
 | Option | Type | Description |
 |--------|------|-------------|
@@ -153,7 +176,7 @@ Configure the plugin in your OpenClaw config under the plugin's section. All opt
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `devAgentId` | `string` | `"dev"` | OpenClaw agent ID to handle Linear issues |
+| `devAgentId` | `string` | `"dev"` | Default OpenClaw agent ID to handle Linear issues (can be overridden per agent in `linearAgents`) |
 | `defaultDir` | `string` | — | Default repository directory for agent work |
 
 ### Issue Policies
@@ -192,7 +215,35 @@ Configure the plugin in your OpenClaw config under the plugin's section. All opt
 | `notifyTo` | `string` | Target for notifications (e.g. `"channel:123456"`) |
 | `notifyAccountId` | `string` | Account ID for notifications |
 
-### Example Configuration
+### Example: Multi-Agent Configuration
+
+```json
+{
+  "linearAgents": {
+    "alex": {
+      "apiKey": "lin_oauth_alex_token",
+      "webhookSecret": "whsec_alex_secret",
+      "devAgentId": "code-agent"
+    },
+    "paige": {
+      "apiKey": "lin_oauth_paige_token",
+      "webhookSecret": "whsec_paige_secret",
+      "devAgentId": "review-agent"
+    }
+  },
+  "devAgentId": "dev",
+  "defaultDir": "/home/projects/main-repo",
+  "repoByTeam": {
+    "ENG": "/home/projects/backend",
+    "WEB": "/home/projects/frontend"
+  },
+  "delegateOnCreate": true,
+  "startOnCreate": true,
+  "enableAgentApi": true
+}
+```
+
+### Example: Single-Agent Configuration (Legacy)
 
 ```json
 {
@@ -213,7 +264,7 @@ Configure the plugin in your OpenClaw config under the plugin's section. All opt
 
 ## Webhook Setup
 
-The plugin registers a POST endpoint at `/plugins/linear/linear`.
+In multi-agent mode, the plugin registers `POST /plugins/linear/{agentName}/webhook` per agent. In single-agent mode, it registers `POST /plugins/linear/linear`.
 
 ### Security
 
@@ -582,7 +633,7 @@ The handler is now available as `{ "action": "my/action" }` through the API prox
 
 ### Webhook not reaching the plugin
 
-- Verify the URL in Linear application settings matches `https://<host>/plugins/linear/linear`
+- Verify the URL in Linear application settings matches `https://<host>/plugins/linear/<agentName>/webhook` (multi-agent) or `https://<host>/plugins/linear/linear` (single-agent)
 - Ensure your host is publicly reachable (check with `curl`)
 - Check that "Agent session events" is enabled in the Linear app webhook settings
 
