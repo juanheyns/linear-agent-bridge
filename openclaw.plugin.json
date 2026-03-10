@@ -67,6 +67,19 @@
       "apiBaseUrl": {
         "type": "string",
         "description": "Override auto-detected base URL for agent API calls"
+      },
+      "linearAgents": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "apiKey": { "type": "string" },
+            "webhookSecret": { "type": "string" },
+            "devAgentId": { "type": "string" }
+          },
+          "required": ["apiKey", "webhookSecret"]
+        },
+        "description": "Per-agent credentials map. Keys are agent names (used as URL path segments), values have apiKey, webhookSecret, and optional devAgentId."
       }
     }
   },
